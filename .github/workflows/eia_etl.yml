@@ -53,7 +53,7 @@ jobs:
         SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
         SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
       run: |
-        python eia_snowflake_etl.py
+        python EIA_API_SCRIPT.py
     
     - name: Clean up private key
       if: always()
