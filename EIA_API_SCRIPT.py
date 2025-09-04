@@ -78,6 +78,8 @@ class EIAToSnowflakeETL:
             }
             
             logger.info("Fetching data from EIA API...")
+            logger.info(f"Using API key: {self.eia_api_key[:10]}..." if self.eia_api_key else "No API key found!")
+            
             response = requests.get(self.eia_base_url, params=params)
             response.raise_for_status()
             
@@ -86,14 +88,31 @@ class EIAToSnowflakeETL:
             if 'response' in data and 'data' in data['response']:
                 df = pd.DataFrame(data['response']['data'])
                 logger.info(f"Successfully fetched {len(df)} records from EIA API")
+                logger.info(f"Original columns in API response: {list(df.columns)}")
+                
+                # Clean and standardize column names for Snowflake
+                new_columns = []
+                for col in df.columns:
+                    # Remove quotes, convert to uppercase, replace problematic characters
+                    clean_col = col.strip('"').upper()
+                    clean_col = clean_col.replace(' ', '_').replace('-', '_').replace('.', '_')
+                    # Handle potential reserved words by adding prefix
+                    if clean_col in ['VALUE', 'PERIOD', 'DATE', 'TIME', 'YEAR', 'MONTH', 'DAY']:
+                        clean_col = f"EIA_{clean_col}"
+                    new_columns.append(clean_col)
+                
+                df.columns = new_columns
+                logger.info(f"Cleaned columns: {list(df.columns)}")
+                logger.info(f"Sample data: {df.head(2).to_dict()}")
                 
                 # Add metadata columns
-                df['extracted_timestamp'] = datetime.now()
-                df['source'] = 'EIA_API'
+                df['EXTRACTED_TIMESTAMP'] = datetime.now()
+                df['SOURCE'] = 'EIA_API'
                 
                 return df
             else:
                 logger.error("No data found in API response")
+                logger.error(f"API response: {data}")
                 return pd.DataFrame()
                 
         except requests.exceptions.RequestException as e:
@@ -124,32 +143,6 @@ class EIAToSnowflakeETL:
         except Exception as e:
             logger.error(f"Error connecting to Snowflake: {e}")
             raise
-    
-    def create_table_if_not_exists(self, connection, table_name, df):
-        """Create the EIA data table if it doesn't exist"""
-        try:
-            cursor = connection.cursor()
-            
-            create_table_sql = f"""
-            CREATE TABLE IF NOT EXISTS {table_name} (
-                period STRING,
-                seriesId STRING,
-                value FLOAT,
-                units STRING,
-                extracted_timestamp TIMESTAMP_NTZ,
-                source STRING,
-                created_date TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
-            )
-            """
-            
-            cursor.execute(create_table_sql)
-            logger.info(f"Table {table_name} created or already exists")
-            
-        except Exception as e:
-            logger.error(f"Error creating table: {e}")
-            raise
-        finally:
-            cursor.close()
     
     def load_data_to_snowflake(self, df, table_name='EIA_STEO_DATA'):
         """Load data to Snowflake table"""
