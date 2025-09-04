@@ -1,0 +1,67 @@
+name: EIA to Snowflake ETL
+
+on:
+  # Run daily at 6 AM UTC (1 AM EST / 2 AM EDT)
+  schedule:
+    - cron: '0 6 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+  
+  # Run on push to main branch (for testing)
+  push:
+    branches: [ main ]
+
+jobs:
+  eia-snowflake-etl:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create private key file
+      run: |
+        echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > rsa_key.p8
+        chmod 600 rsa_key.p8
+    
+    - name: Run EIA to Snowflake ETL
+      env:
+        EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+        SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+        SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+        SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+        SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+        SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+        SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+      run: |
+        python eia_snowflake_etl.py
+    
+    - name: Clean up private key
+      if: always()
+      run: |
+        rm -f rsa_key.p8
+    
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "ETL job failed. Check the logs for details."
+        # You can add email/Slack notifications here later
