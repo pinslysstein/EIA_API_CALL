@@ -201,14 +201,19 @@ class EIAToSnowflakeETL:
             # Fetch data from EIA API
             df = self.fetch_eia_data()
             
-            # Load data to Snowflake
+            # Load data to Snowflake (even if empty, to maintain table structure)
             self.load_data_to_snowflake(df)
             
-            logger.info("ETL process completed successfully")
+            if df.empty:
+                logger.warning("ETL completed but no data was loaded due to API issues")
+            else:
+                logger.info("ETL process completed successfully")
             
         except Exception as e:
             logger.error(f"ETL process failed: {e}")
-            raise
+            # Don't re-raise the exception if it's just an empty DataFrame issue
+            if "No data to load" not in str(e):
+                raise
 
 if __name__ == "__main__":
     etl = EIAToSnowflakeETL()
