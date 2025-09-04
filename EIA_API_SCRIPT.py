@@ -68,17 +68,20 @@ class EIAToSnowflakeETL:
             # Construct URL with parameters
             params = {
                 'api_key': self.eia_api_key,
-                'frequency': self.api_params['frequency'],  # Old way
-                'facets[seriesId][]': self.api_params['facets']['seriesId'],  # Multiple series
-                'length': self.api_params['length']  # 5000 records
+                'frequency': self.api_params['frequency'],
+                'data[0]': 'value',
+                'facets[seriesId][]': self.api_params['facets']['seriesId'],
+                'sort[0][column]': self.api_params['sort'][0]['column'],
+                'sort[0][direction]': self.api_params['sort'][0]['direction'],
+                'offset': self.api_params['offset'],
+                'length': self.api_params['length']
             }
             
             logger.info("Fetching data from EIA API...")
             logger.info(f"Using API key: {self.eia_api_key[:10]}..." if self.eia_api_key else "No API key found!")
             
             response = requests.get(self.eia_base_url, params=params)
-            if response.status_code == 500:
-                logger.warning("Got 500 error, trying alternative approach...")
+            response.raise_for_status()
             
             data = response.json()
             
@@ -215,5 +218,3 @@ class EIAToSnowflakeETL:
 if __name__ == "__main__":
     etl = EIAToSnowflakeETL()
     etl.run_etl()
-
-
