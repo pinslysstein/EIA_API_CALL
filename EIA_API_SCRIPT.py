@@ -29,18 +29,15 @@ class EIAToSnowflakeETL:
         # Use rsa_key.p8 in the same directory as this script
         self.snowflake_private_key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rsa_key.p8')
         
-        # API Parameters
+        # Simplified API Parameters - using basic request to avoid 500 errors
         self.api_params = {
             "frequency": "monthly",
             "data": ["value"],
             "facets": {
-                "seriesId": ["DSRTUUS", "DSRTUUS_$", "DSRTUUS_RP_$"]
+                "seriesId": ["DSRTUUS"]  # Single series only
             },
-            "start": None,
-            "end": None,
             "sort": [{"column": "period", "direction": "desc"}],
-            "offset": 0,
-            "length": 5000
+            "length": 100  # Smaller request size
         }
     
     def load_private_key(self):
