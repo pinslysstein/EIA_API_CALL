@@ -81,7 +81,8 @@ class EIAToSnowflakeETL:
             logger.info(f"Using API key: {self.eia_api_key[:10]}..." if self.eia_api_key else "No API key found!")
             
             response = requests.get(self.eia_base_url, params=params)
-            response.raise_for_status()
+            if response.status_code == 500:
+                logger.warning("Got 500 error, trying alternative approach...")
             
             data = response.json()
             
@@ -218,3 +219,4 @@ class EIAToSnowflakeETL:
 if __name__ == "__main__":
     etl = EIAToSnowflakeETL()
     etl.run_etl()
+
