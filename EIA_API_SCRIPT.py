@@ -29,15 +29,16 @@ class EIAToSnowflakeETL:
         # Use rsa_key.p8 in the same directory as this script
         self.snowflake_private_key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rsa_key.p8')
         
-        # Simplified API Parameters - using basic request to avoid 500 errors
+        # API Parameters - simplified to avoid 500 errors
         self.api_params = {
             "frequency": "monthly",
             "data": ["value"],
             "facets": {
-                "seriesId": ["DSRTUUS"]  # Single series only
+                "seriesId": ["DSRTUUS"]
             },
             "sort": [{"column": "period", "direction": "desc"}],
-            "length": 100  # Smaller request size
+            "offset": 0,
+            "length": 100
         }
     
     def load_private_key(self):
@@ -75,9 +76,13 @@ class EIAToSnowflakeETL:
             }
             
             logger.info("Fetching data from EIA API...")
-            logger.info(f"Using API key: {self.eia_api_key[:10]}..." if self.eia_api_key else "No API key found!")
-            
             response = requests.get(self.eia_base_url, params=params)
+            
+            # Handle 500 errors gracefully
+            if response.status_code == 500:
+                logger.warning("EIA API returned 500 error - will return empty data and continue")
+                return pd.DataFrame()
+            
             response.raise_for_status()
             
             data = response.json()
@@ -85,39 +90,24 @@ class EIAToSnowflakeETL:
             if 'response' in data and 'data' in data['response']:
                 df = pd.DataFrame(data['response']['data'])
                 logger.info(f"Successfully fetched {len(df)} records from EIA API")
-                logger.info(f"Original columns in API response: {list(df.columns)}")
-                
-                # Clean and standardize column names for Snowflake
-                new_columns = []
-                for col in df.columns:
-                    # Remove quotes, convert to uppercase, replace problematic characters
-                    clean_col = col.strip('"').upper()
-                    clean_col = clean_col.replace(' ', '_').replace('-', '_').replace('.', '_')
-                    # Handle potential reserved words by adding prefix
-                    if clean_col in ['VALUE', 'PERIOD', 'DATE', 'TIME', 'YEAR', 'MONTH', 'DAY']:
-                        clean_col = f"EIA_{clean_col}"
-                    new_columns.append(clean_col)
-                
-                df.columns = new_columns
-                logger.info(f"Cleaned columns: {list(df.columns)}")
-                logger.info(f"Sample data: {df.head(2).to_dict()}")
                 
                 # Add metadata columns
-                df['EXTRACTED_TIMESTAMP'] = datetime.now()
-                df['SOURCE'] = 'EIA_API'
+                df['extracted_timestamp'] = datetime.now()
+                df['source'] = 'EIA_API'
                 
                 return df
             else:
                 logger.error("No data found in API response")
-                logger.error(f"API response: {data}")
                 return pd.DataFrame()
                 
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching data from EIA API: {e}")
-            raise
+            logger.warning("Returning empty DataFrame due to API error")
+            return pd.DataFrame()
         except Exception as e:
             logger.error(f"Unexpected error fetching EIA data: {e}")
-            raise
+            logger.warning("Returning empty DataFrame due to unexpected error")
+            return pd.DataFrame()
     
     def connect_to_snowflake(self):
         """Establish connection to Snowflake using key pair authentication"""
@@ -177,7 +167,24 @@ class EIAToSnowflakeETL:
                     logger.error("Failed to load data to Snowflake")
                     
             else:
-                logger.warning("No data to load to Snowflake")
+                logger.warning("No data to load to Snowflake - creating empty table structure")
+                
+                # Create an empty table with basic structure for future runs
+                cursor = connection.cursor()
+                cursor.execute(f'''
+                    CREATE TABLE IF NOT EXISTS {table_name} (
+                        period STRING,
+                        seriesId STRING,
+                        value FLOAT,
+                        units STRING,
+                        seriesDescription STRING,
+                        extracted_timestamp TIMESTAMP_NTZ,
+                        source STRING,
+                        created_date TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+                    )
+                ''')
+                logger.info(f"Created empty table {table_name} for future data loads")
+                cursor.close()
                 
         except Exception as e:
             logger.error(f"Error loading data to Snowflake: {e}")
@@ -198,19 +205,17 @@ class EIAToSnowflakeETL:
             # Fetch data from EIA API
             df = self.fetch_eia_data()
             
-            # Load data to Snowflake (even if empty, to maintain table structure)
+            # Load data to Snowflake (even if empty)
             self.load_data_to_snowflake(df)
             
             if df.empty:
-                logger.warning("ETL completed but no data was loaded due to API issues")
+                logger.info("ETL process completed - no data loaded due to API issues")
             else:
                 logger.info("ETL process completed successfully")
             
         except Exception as e:
             logger.error(f"ETL process failed: {e}")
-            # Don't re-raise the exception if it's just an empty DataFrame issue
-            if "No data to load" not in str(e):
-                raise
+            raise
 
 if __name__ == "__main__":
     etl = EIAToSnowflakeETL()
